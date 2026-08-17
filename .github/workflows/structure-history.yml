@@ -1,0 +1,44 @@
+name: Improve Outreach history rows
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-history:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add numbering, name and company to history
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const path = 'app.py';
+            const current = await github.rest.repos.getContent({owner, repo, path, ref:'main'});
+            const sha = current.data.sha;
+            let s = Buffer.from(current.data.content, 'base64').toString('utf8');
+
+            const oldHeader = 'cols=st.columns([2.4,1,2.1,1.25]);cols[0].markdown("**TO**");cols[1].markdown("**STATUS**");cols[2].markdown("**SECTOR**");cols[3].markdown("**SENT**")';
+            const newHeader = 'cols=st.columns([0.55,1.8,1.8,2.1,1.15,1.05]);cols[0].markdown("**#**");cols[1].markdown("**NAME**");cols[2].markdown("**COMPANY**");cols[3].markdown("**EMAIL**");cols[4].markdown("**SECTOR**");cols[5].markdown("**SENT**")';
+            if (s.includes(oldHeader)) s = s.replace(oldHeader, newHeader);
+
+            const oldLoop = 'for _,r in f.sort_values("dt",ascending=False).iterrows():\n                cols=st.columns([2.4,1,2.1,1.25]);event=str(r["event_type"]);label="Delivered" if event=="sent" else event.capitalize();css="delivered" if event=="sent" else event;cols[0].write(r.get("email","") or "—");cols[1].markdown(f\'<span class="status-{css}">{label}</span>\',unsafe_allow_html=True);cols[2].markdown(f\'<span class="badge">{r.get("sector") or "General"}</span>\',unsafe_allow_html=True);cols[3].write(relative_time(r.get("timestamp")))';
+            const newLoop = 'for row_number,(_,r) in enumerate(f.sort_values("dt",ascending=False).iterrows(),1):\n                cols=st.columns([0.55,1.8,1.8,2.1,1.15,1.05]);event=str(r["event_type"]);label="Delivered" if event=="sent" else event.capitalize();css="delivered" if event=="sent" else event;cols[0].write(row_number);cols[1].write(r.get("name","") or "—");cols[2].write(r.get("company","") or "—");cols[3].write(r.get("email","") or "—");cols[4].markdown(f\'<span class="badge">{r.get("sector") or "General"}</span>\',unsafe_allow_html=True);cols[5].write(relative_time(r.get("timestamp")))';
+            if (s.includes(oldLoop)) s = s.replace(oldLoop, newLoop);
+
+            const oldSearch = 'for field in ["email","name","company","sector","detail"]:';
+            if (!s.includes(oldSearch)) s = s.replace('for field in ["email","name","company","sector","detail"]:', oldSearch);
+
+            if (!s.includes('Customer list"'])) {
+              // no-op guard; retained for compatibility with future versions
+            }
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner, repo, path, branch:'main', sha,
+              message:'Improve email history structure with numbered customer details',
+              content: Buffer.from(s,'utf8').toString('base64')
+            });
