@@ -1,17 +1,4 @@
-"""
-Postgres storage layer (Supabase). Everything the app knows lives in
-one Postgres database instead of a local SQLite file, so nothing is
-lost on redeploy or restart.
-
-Set DATABASE_URL to your Supabase connection string, e.g.:
-    postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres
-
-Find it in Supabase: Project Settings -> Database -> Connection string.
-If deploying somewhere serverless/short-lived (Streamlit Cloud, Vercel,
-Netlify functions, etc.), use the "Connection pooling" string instead
-(port 6543) -- it handles many short connections better than the
-direct one.
-"""
+"""Postgres storage layer for the Outreach prototype."""
 
 import os
 import psycopg2
@@ -24,11 +11,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_conn():
     if not DATABASE_URL:
         raise RuntimeError(
-            "DATABASE_URL is not set. Add your Supabase connection string "
-            "as an environment variable (or Streamlit secret) named DATABASE_URL."
+            "DATABASE_URL is not set. Add your Supabase connection string as "
+            "an environment variable (or Streamlit secret) named DATABASE_URL."
         )
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    return conn
+    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
 def init_db():
@@ -51,16 +37,18 @@ def init_db():
             contact_id INTEGER NOT NULL REFERENCES contacts (id),
             event_type TEXT NOT NULL,
             detail TEXT,
+            subject TEXT,
             timestamp TEXT
         )
     """)
+    # Safe migration for databases created by the original prototype.
+    cur.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS subject TEXT")
     conn.commit()
     cur.close()
     conn.close()
 
 
 def upsert_contacts(rows):
-    """rows: list of dicts with keys name, email, company, sector (sector may be None)."""
     conn = get_conn()
     cur = conn.cursor()
     now = datetime.now(timezone.utc).isoformat()
@@ -72,27 +60,26 @@ def upsert_contacts(rows):
             continue
         cur.execute(
             "INSERT INTO contacts (name, email, company, sector, status, created_at) "
-            "VALUES (%s, %s, %s, %s, 'pending', %s) "
-            "ON CONFLICT (email) DO NOTHING",
+            "VALUES (%s, %s, %s, %s, 'pending', %s) ON CONFLICT (email) DO NOTHING",
             (r.get("name", "").strip(), email, r.get("company", "").strip(),
              r.get("sector") or None, now),
         )
         if cur.rowcount == 1:
             inserted += 1
         else:
-            skipped += 1  # duplicate email, already in the list
+            skipped += 1
     conn.commit()
     cur.close()
     conn.close()
     return inserted, skipped
 
 
-def log_event(contact_id, event_type, detail=""):
+def log_event(contact_id, event_type, detail="", subject=""):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO events (contact_id, event_type, detail, timestamp) VALUES (%s, %s, %s, %s)",
-        (contact_id, event_type, detail, datetime.now(timezone.utc).isoformat()),
+        "INSERT INTO events (contact_id, event_type, detail, subject, timestamp) VALUES (%s, %s, %s, %s, %s)",
+        (contact_id, event_type, detail, subject, datetime.now(timezone.utc).isoformat()),
     )
     cur.execute("UPDATE contacts SET status = %s WHERE id = %s", (event_type, contact_id))
     conn.commit()
@@ -118,18 +105,15 @@ def get_metrics():
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) c FROM contacts")
     total_contacts = cur.fetchone()["c"]
-
     counts = {}
     cur.execute("SELECT event_type, COUNT(*) c FROM events GROUP BY event_type")
     for row in cur.fetchall():
         counts[row["event_type"]] = row["c"]
-
     cur.execute("""
         SELECT date(timestamp::timestamptz) d, event_type, COUNT(*) c
         FROM events GROUP BY d, event_type ORDER BY d
     """)
     daily = cur.fetchall()
-
     cur.close()
     conn.close()
     return {
