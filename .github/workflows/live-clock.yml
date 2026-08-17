@@ -1,0 +1,53 @@
+name: Keep Outreach clock live
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-clock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Patch app.py with live IST clock
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const path = 'app.py';
+
+            const current = await github.rest.repos.getContent({ owner, repo, path, ref: 'main' });
+            const sha = current.data.sha;
+            let source = Buffer.from(current.data.content, 'base64').toString('utf8');
+
+            if (!source.includes('import streamlit.components.v1 as components')) {
+              source = source.replace(
+                'import streamlit as st\n',
+                'import streamlit as st\nimport streamlit.components.v1 as components\n'
+              );
+            }
+
+            const start = source.indexOf('def page_head(title,subtitle):');
+            const end = source.indexOf('def relative_time(value):');
+            if (start === -1 || end === -1 || end <= start) {
+              core.setFailed('Could not locate page_head block in app.py');
+              return;
+            }
+
+            const replacement = `def live_clock():\n    components.html("""\n    <div style="font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;border:1px solid #e9e7f0;border-radius:999px;padding:8px 12px;color:#6d6e7e;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(60,55,100,.05);display:inline-flex;align-items:center;gap:7px;">\n      <span style="width:7px;height:7px;border-radius:50%;background:#2eaf86;box-shadow:0 0 0 4px rgba(46,175,134,.12);display:inline-block;"></span>\n      <span>IST · </span><span id="clock"></span>\n    </div>\n    <script>\n      function tick(){\n        const now=new Date();\n        const text=new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(now);\n        document.getElementById('clock').textContent=text;\n      }\n      tick();\n      setInterval(tick,1000);\n    </script>\n    """,height=44,scrolling=False)\n\n\ndef page_head(title,subtitle):\n    left,right=st.columns([5,2],vertical_alignment="top")\n    with left:\n        st.markdown(f'<div class="page-head" style="margin-bottom:0"><div><div class="page-title">{title}</div><div class="page-subtitle">{subtitle}</div></div></div>',unsafe_allow_html=True)\n    with right:\n        live_clock()\n    st.write("")\n\n\n`;
+
+            source = source.slice(0, start) + replacement + source.slice(end);
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner,
+              repo,
+              path,
+              message: 'Make Outreach IST clock update live',
+              content: Buffer.from(source, 'utf8').toString('base64'),
+              sha,
+              branch: 'main'
+            });
