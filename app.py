@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     for key, value in st.secrets.items():
@@ -47,8 +48,32 @@ with st.sidebar:
     st.divider();st.markdown('<div class="small">Sending from</div>',unsafe_allow_html=True);st.caption(SENDER_EMAIL or "Not configured");st.markdown('<div class="small">Timezone</div>',unsafe_allow_html=True);st.caption("India Standard Time (IST)")
 
 
+def live_clock():
+    components.html("""
+    <div style="font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;border:1px solid #e9e7f0;border-radius:999px;padding:8px 12px;color:#6d6e7e;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(60,55,100,.05);display:inline-flex;align-items:center;gap:7px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#2eaf86;box-shadow:0 0 0 4px rgba(46,175,134,.12);display:inline-block;"></span>
+      <span>IST · </span><span id="clock"></span>
+    </div>
+    <script>
+      function tick(){
+        const now=new Date();
+        const text=new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(now);
+        document.getElementById('clock').textContent=text;
+      }
+      tick();
+      setInterval(tick,1000);
+    </script>
+    """,height=44,scrolling=False)
+
+
 def page_head(title,subtitle):
-    now=datetime.now(IST);st.markdown(f'<div class="page-head"><div><div class="page-title">{title}</div><div class="page-subtitle">{subtitle}</div></div><div class="ist-pill"><span class="dot"></span>IST · {now.strftime("%d %b %Y · %I:%M %p")}</div></div>',unsafe_allow_html=True)
+    left,right=st.columns([5,2],vertical_alignment="top")
+    with left:
+        st.markdown(f'<div class="page-head" style="margin-bottom:0"><div><div class="page-title">{title}</div><div class="page-subtitle">{subtitle}</div></div></div>',unsafe_allow_html=True)
+    with right:
+        live_clock()
+    st.write("")
+
 
 def relative_time(value):
     try:
