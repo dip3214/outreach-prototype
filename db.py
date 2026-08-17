@@ -6,6 +6,8 @@ import psycopg2.extras
 from datetime import datetime, timezone
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+DB_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "15000"))
 
 
 def get_conn():
@@ -14,7 +16,15 @@ def get_conn():
             "DATABASE_URL is not set. Add your Supabase connection string as "
             "an environment variable (or Streamlit secret) named DATABASE_URL."
         )
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    # Prevent the Streamlit app from appearing to buffer forever when the
+    # database/network is unavailable. Keep connection and query timeouts
+    # explicit for the hosted prototype.
+    return psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=DB_CONNECT_TIMEOUT,
+        options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+    )
 
 
 def init_db():
@@ -184,8 +194,8 @@ def get_metrics():
     """)
     counts = {row["event_type"]: row["c"] for row in cur.fetchall()}
 
-    # Reply is a customer-level metric: one customer counts once even if
-    # multiple reply events have been detected for that customer.
+    # One customer = one reply on the dashboard, even if that customer sent
+    # multiple reply messages.
     cur.execute("""
         SELECT COUNT(DISTINCT contact_id) c
         FROM events
@@ -193,21 +203,16 @@ def get_metrics():
     """)
     unique_replies = cur.fetchone()["c"]
 
-    # Daily replies are also distinct customers per day, so the graph does
-    # not overstate replies when the same customer sends multiple messages.
     cur.execute("""
         SELECT DATE(timestamp::timestamptz) d, event_type, COUNT(*) c
         FROM events
         WHERE event_type IN ('sent', 'bounced')
         GROUP BY d, event_type
-
         UNION ALL
-
         SELECT DATE(timestamp::timestamptz) d, event_type, COUNT(DISTINCT contact_id) c
         FROM events
         WHERE event_type = 'replied'
         GROUP BY d, event_type
-
         ORDER BY d
     """)
     daily = cur.fetchall()
