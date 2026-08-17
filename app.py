@@ -66,6 +66,24 @@ def live_clock():
     """,height=44,scrolling=False)
 
 
+def live_clock():
+    components.html("""
+    <div style="font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;border:1px solid #e9e7f0;border-radius:999px;padding:8px 12px;color:#6d6e7e;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(60,55,100,.05);display:inline-flex;align-items:center;gap:7px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#2eaf86;box-shadow:0 0 0 4px rgba(46,175,134,.12);display:inline-block;"></span>
+      <span>IST · </span><span id="clock"></span>
+    </div>
+    <script>
+      function tick(){
+        const now=new Date();
+        const text=new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(now);
+        document.getElementById('clock').textContent=text;
+      }
+      tick();
+      setInterval(tick,1000);
+    </script>
+    """,height=44,scrolling=False)
+
+
 def page_head(title,subtitle):
     left,right=st.columns([5,2],vertical_alignment="top")
     with left:
