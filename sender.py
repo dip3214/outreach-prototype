@@ -1,10 +1,11 @@
-"""SMTP sending and IMAP reply/bounce tracking."""
+"""SMTP sending, scheduled sending, and IMAP reply/bounce tracking."""
 
 import smtplib
 import imaplib
 import email
 import time
 import os
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 
 import db
@@ -47,6 +48,36 @@ def send_batch(sender_email, app_password, contacts, render_fn, delay_seconds=60
     return sent_count
 
 
+def send_due_scheduled(sender_email, app_password):
+    """Send scheduled messages that are due when the Streamlit app is active."""
+    now = datetime.now(timezone.utc)
+    due = []
+    for item in db.get_scheduled_emails("scheduled"):
+        try:
+            scheduled_for = datetime.fromisoformat(str(item["scheduled_for"]).replace("Z", "+00:00"))
+            if scheduled_for.tzinfo is None:
+                scheduled_for = scheduled_for.replace(tzinfo=timezone.utc)
+            if scheduled_for <= now:
+                due.append(item)
+        except Exception:
+            continue
+
+    processed = 0
+    for item in due:
+        try:
+            send_one(sender_email, app_password, item["email"], item["subject"], item["body"])
+            db.log_event(item["contact_id"], "sent", subject=item["subject"])
+            db.mark_scheduled_email(item["id"], "sent")
+        except smtplib.SMTPRecipientsRefused:
+            db.log_event(item["contact_id"], "bounced", "recipient refused at scheduled send", item["subject"])
+            db.mark_scheduled_email(item["id"], "bounced")
+        except Exception as e:
+            db.log_event(item["contact_id"], "bounced", str(e), item["subject"])
+            db.mark_scheduled_email(item["id"], "bounced")
+        processed += 1
+    return processed
+
+
 def check_replies_and_bounces(sender_email, app_password, lookback=50):
     conn = imaplib.IMAP4_SSL(IMAP_HOST)
     conn.login(sender_email, app_password)
@@ -69,14 +100,14 @@ def check_replies_and_bounces(sender_email, app_password, lookback=50):
             body_text = _get_body_text(parsed)
             for addr, contact in email_to_contact.items():
                 if addr in body_text.lower() and contact["status"] != "bounced":
-                    db.log_event(contact["id"], "bounced", "detected via IMAP delivery failure")
+                    db.log_event(contact["id"], "bounced", "detected via IMAP delivery failure", parsed.get("Subject", ""))
                     bounces_found += 1
             continue
 
         if from_addr in email_to_contact:
             contact = email_to_contact[from_addr]
             if contact["status"] != "replied":
-                db.log_event(contact["id"], "replied", parsed.get("Subject", ""))
+                db.log_event(contact["id"], "replied", parsed.get("Subject", ""), parsed.get("Subject", ""))
                 replies_found += 1
 
     conn.logout()
