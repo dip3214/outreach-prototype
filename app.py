@@ -162,9 +162,9 @@ elif page=="Emails":
         st.markdown('<div class="card">',unsafe_allow_html=True)
         if f.empty:st.info("No outbound email history yet.")
         else:
-            cols=st.columns([2.4,1,2.1,1.25]);cols[0].markdown("**TO**");cols[1].markdown("**STATUS**");cols[2].markdown("**SECTOR**");cols[3].markdown("**SENT**")
-            for _,r in f.sort_values("dt",ascending=False).iterrows():
-                cols=st.columns([2.4,1,2.1,1.25]);event=str(r["event_type"]);label="Delivered" if event=="sent" else event.capitalize();css="delivered" if event=="sent" else event;cols[0].write(r.get("email","") or "—");cols[1].markdown(f'<span class="status-{css}">{label}</span>',unsafe_allow_html=True);cols[2].markdown(f'<span class="badge">{r.get("sector") or "General"}</span>',unsafe_allow_html=True);cols[3].write(relative_time(r.get("timestamp")))
+            cols=st.columns([0.55,1.8,1.8,2.1,1.15,1.05]);cols[0].markdown("**#**");cols[1].markdown("**NAME**");cols[2].markdown("**COMPANY**");cols[3].markdown("**EMAIL**");cols[4].markdown("**SECTOR**");cols[5].markdown("**SENT**")
+            for row_number,(_,r) in enumerate(f.sort_values("dt",ascending=False).iterrows(),1):
+                cols=st.columns([0.55,1.8,1.8,2.1,1.15,1.05]);event=str(r["event_type"]);cols[0].write(row_number);cols[1].write(r.get("name","") or "—");cols[2].write(r.get("company","") or "—");cols[3].write(r.get("email","") or "—");cols[4].markdown(f'<span class="badge">{r.get("sector") or "General"}</span>',unsafe_allow_html=True);cols[5].write(relative_time(r.get("timestamp")))
         st.markdown('</div>',unsafe_allow_html=True)
         if st.button("Sync replies & bounces"):
             if SENDER_EMAIL and APP_PASSWORD:result=sender.check_replies_and_bounces(SENDER_EMAIL,APP_PASSWORD);st.success(f"Synced {result['replies_found']} replies and {result['bounces_found']} bounces.");st.rerun()
