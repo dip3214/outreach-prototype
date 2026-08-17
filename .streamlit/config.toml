@@ -1,11 +1,9 @@
 [runner]
-# Disable Streamlit Magic so internal Python return values (such as
-# DeltaGenerator objects from list comprehensions) are never rendered.
 magicEnabled = false
 
 [theme]
 base = "light"
-primaryColor = "#7867E8"
+primaryColor = "#6F5BE8"
 backgroundColor = "#F7F7FB"
 secondaryBackgroundColor = "#FFFFFF"
 textColor = "#202033"
