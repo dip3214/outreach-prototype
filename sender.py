@@ -1,9 +1,4 @@
-"""
-Sending and reply-tracking, both against your own mailbox.
-Prototype defaults: Gmail SMTP + IMAP with an app password.
-Swap host/port when you move to a domain mailbox later -- nothing
-else in this file changes.
-"""
+"""SMTP sending and IMAP reply/bounce tracking."""
 
 import smtplib
 import imaplib
@@ -31,12 +26,7 @@ def send_one(sender_email, app_password, to_email, subject, body):
 
 
 def send_batch(sender_email, app_password, contacts, render_fn, delay_seconds=60,
-                daily_cap=80, progress_callback=None):
-    """
-    contacts: list of contact dicts (must include id, email, sector, name, company).
-    render_fn: function(contact) -> (subject, body).
-    Stops at daily_cap. Logs 'sent' or 'bounced' event per contact.
-    """
+               daily_cap=80, progress_callback=None):
     sent_count = 0
     for contact in contacts:
         if sent_count >= daily_cap:
@@ -44,11 +34,11 @@ def send_batch(sender_email, app_password, contacts, render_fn, delay_seconds=60
         subject, body = render_fn(contact)
         try:
             send_one(sender_email, app_password, contact["email"], subject, body)
-            db.log_event(contact["id"], "sent")
+            db.log_event(contact["id"], "sent", subject=subject)
         except smtplib.SMTPRecipientsRefused:
-            db.log_event(contact["id"], "bounced", "recipient refused at send time")
+            db.log_event(contact["id"], "bounced", "recipient refused at send time", subject)
         except Exception as e:
-            db.log_event(contact["id"], "bounced", str(e))
+            db.log_event(contact["id"], "bounced", str(e), subject)
         sent_count += 1
         if progress_callback:
             progress_callback(sent_count, contact["email"])
@@ -58,11 +48,6 @@ def send_batch(sender_email, app_password, contacts, render_fn, delay_seconds=60
 
 
 def check_replies_and_bounces(sender_email, app_password, lookback=50):
-    """
-    Polls your own inbox via IMAP. Matches sender addresses in recent
-    messages against contact emails to mark replies. Looks for
-    mailer-daemon / delivery-failure messages to mark bounces.
-    """
     conn = imaplib.IMAP4_SSL(IMAP_HOST)
     conn.login(sender_email, app_password)
     conn.select("inbox")
@@ -72,8 +57,8 @@ def check_replies_and_bounces(sender_email, app_password, lookback=50):
 
     contacts = db.get_contacts()
     email_to_contact = {c["email"].lower(): c for c in contacts}
-
     replies_found, bounces_found = 0, 0
+
     for msg_id in ids:
         _, msg_data = conn.fetch(msg_id, "(RFC822)")
         raw = msg_data[0][1]
@@ -90,8 +75,8 @@ def check_replies_and_bounces(sender_email, app_password, lookback=50):
 
         if from_addr in email_to_contact:
             contact = email_to_contact[from_addr]
-            if contact["status"] not in ("replied",):
-                db.log_event(contact["id"], "replied")
+            if contact["status"] != "replied":
+                db.log_event(contact["id"], "replied", parsed.get("Subject", ""))
                 replies_found += 1
 
     conn.logout()
