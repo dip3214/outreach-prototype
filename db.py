@@ -175,23 +175,49 @@ def get_metrics():
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) c FROM contacts")
     total_contacts = cur.fetchone()["c"]
-    counts = {}
-    cur.execute("SELECT event_type, COUNT(*) c FROM events GROUP BY event_type")
-    for row in cur.fetchall():
-        counts[row["event_type"]] = row["c"]
+
     cur.execute("""
-        SELECT date(timestamp::timestamptz) d, event_type, COUNT(*) c
+        SELECT event_type, COUNT(*) c
         FROM events
-        WHERE event_type IN ('sent', 'bounced', 'replied')
-        GROUP BY d, event_type ORDER BY d
+        WHERE event_type IN ('sent', 'bounced')
+        GROUP BY event_type
+    """)
+    counts = {row["event_type"]: row["c"] for row in cur.fetchall()}
+
+    # Reply is a customer-level metric: one customer counts once even if
+    # multiple reply events have been detected for that customer.
+    cur.execute("""
+        SELECT COUNT(DISTINCT contact_id) c
+        FROM events
+        WHERE event_type = 'replied'
+    """)
+    unique_replies = cur.fetchone()["c"]
+
+    # Daily replies are also distinct customers per day, so the graph does
+    # not overstate replies when the same customer sends multiple messages.
+    cur.execute("""
+        SELECT DATE(timestamp::timestamptz) d, event_type, COUNT(*) c
+        FROM events
+        WHERE event_type IN ('sent', 'bounced')
+        GROUP BY d, event_type
+
+        UNION ALL
+
+        SELECT DATE(timestamp::timestamptz) d, event_type, COUNT(DISTINCT contact_id) c
+        FROM events
+        WHERE event_type = 'replied'
+        GROUP BY d, event_type
+
+        ORDER BY d
     """)
     daily = cur.fetchall()
+
     cur.close()
     conn.close()
     return {
         "total_contacts": total_contacts,
         "sent": counts.get("sent", 0),
         "bounced": counts.get("bounced", 0),
-        "replied": counts.get("replied", 0),
+        "replied": unique_replies,
         "daily": [dict(r) for r in daily],
     }
